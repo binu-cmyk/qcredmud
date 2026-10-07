@@ -2,9 +2,9 @@
 ' RedMud QC - download ZQM_01 for every plant in "plant code",
 ' then merge all plant files into one Excel workbook.
 '
-' How to run: log in to SAP GUI, then double-click this file.
+' How to run: log in to SAP GUI, then double-click this file
+' (or run it from SAP GUI "Script Recording and Playback").
 ' ============================================================
-Option Explicit
 
 ' ---- Settings ----
 Const TCODE        = "zqm_01"
@@ -15,47 +15,64 @@ Const OUT_DIR      = "D:\OneDrive - Aditya Birla Group\CPC- Raw Materials - Docu
 Const MERGED_FILE  = "RedMud_QC_All_Plants.xlsx"
 Const RUN_DOWNLOAD = True   ' False = only merge the files already downloaded
 Const RUN_MERGE    = True
+Const PLANT_FILE   = "D:\RedMud QC\plant code"   ' used when run from SAP playback
 
-Dim fso, scriptDir, plants, p, session, results
+Dim fso, plants, session
 Set fso = CreateObject("Scripting.FileSystemObject")
-scriptDir = fso.GetParentFolderName(WScript.ScriptFullName)
+Main
 
-plants = LoadPlants(scriptDir & "\plant code")
-If UBound(plants) < 0 Then
-    MsgBox "No plant codes found in:" & vbCrLf & scriptDir & "\plant code", vbExclamation, "RedMud QC"
-    WScript.Quit
-End If
-If Not fso.FolderExists(OUT_DIR) Then
-    MsgBox "Output folder does not exist:" & vbCrLf & OUT_DIR, vbExclamation, "RedMud QC"
-    WScript.Quit
-End If
+Sub Main()
+    Dim plantFile, p, results
+    ' Double-click: read "plant code" next to this script; SAP playback: use PLANT_FILE
+    plantFile = PLANT_FILE
+    If IsObject(WScript) Then plantFile = fso.GetParentFolderName(WScript.ScriptFullName) & "\plant code"
 
-results = ""
-
-If RUN_DOWNLOAD Then
-    Set session = ConnectSap()
-    If session Is Nothing Then
-        MsgBox "Could not connect to SAP GUI. Open SAP, log in, and enable scripting.", vbExclamation, "RedMud QC"
-        WScript.Quit
+    plants = LoadPlants(plantFile)
+    If UBound(plants) < 0 Then
+        MsgBox "No plant codes found in:" & vbCrLf & plantFile, vbExclamation, "RedMud QC"
+        Exit Sub
     End If
-    session.findById("wnd[0]").maximize
+    If Not fso.FolderExists(OUT_DIR) Then
+        MsgBox "Output folder does not exist:" & vbCrLf & OUT_DIR, vbExclamation, "RedMud QC"
+        Exit Sub
+    End If
 
-    For Each p In plants
-        results = results & p(0) & " (" & p(1) & "): " & ExportPlant(p(0)) & vbCrLf
-    Next
+    results = ""
 
-    ' Back to SAP main menu
-    On Error Resume Next
-    session.findById("wnd[0]/tbar[0]/okcd").text = "/n"
-    session.findById("wnd[0]").sendVKey 0
-    On Error GoTo 0
+    If RUN_DOWNLOAD Then
+        Set session = ConnectSap()
+        If session Is Nothing Then
+            MsgBox "Could not connect to SAP GUI. Open SAP, log in, and enable scripting.", vbExclamation, "RedMud QC"
+            Exit Sub
+        End If
+        session.findById("wnd[0]").maximize
 
-    CloseSapExcelWindows
-End If
+        For Each p In plants
+            results = results & p(0) & " (" & p(1) & "): " & ExportPlant(p(0)) & vbCrLf
+        Next
 
-If RUN_MERGE Then results = results & vbCrLf & MergeFiles()
+        ' Back to SAP main menu
+        On Error Resume Next
+        session.findById("wnd[0]/tbar[0]/okcd").text = "/n"
+        session.findById("wnd[0]").sendVKey 0
+        On Error GoTo 0
 
-MsgBox results, vbInformation, "RedMud QC - finished"
+        CloseSapExcelWindows
+    End If
+
+    If RUN_MERGE Then results = results & vbCrLf & MergeFiles()
+
+    MsgBox results, vbInformation, "RedMud QC - finished"
+End Sub
+
+' WScript.Sleep is not available when run from SAP playback
+Sub Pause(ms)
+    If IsObject(WScript) Then
+        WScript.Sleep ms
+    Else
+        CreateObject("WScript.Shell").Run "powershell -NoProfile -Command Start-Sleep -Milliseconds " & ms, 0, True
+    End If
+End Sub
 
 
 ' ------------------------------------------------------------
@@ -156,8 +173,8 @@ Function ExportPlant(code)
 
     ' Wait up to 30 s for the file to appear
     t = 0
-    Do While Not fso.FileExists(filePath) And t < 60
-        WScript.Sleep 500
+    Do While Not fso.FileExists(filePath) And t < 30
+        Pause 1000
         t = t + 1
     Loop
     If fso.FileExists(filePath) Then
@@ -189,7 +206,7 @@ End Sub
 
 Sub CloseSapExcelWindows()
     Dim xl, pl
-    WScript.Sleep 5000   ' give Excel time to open the last file
+    Pause 5000   ' give Excel time to open the last file
     For Each pl In plants
         CloseWorkbookByName LCase(pl(0)) & ".xlsx"
     Next
